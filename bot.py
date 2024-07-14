@@ -18,7 +18,9 @@ SMTP_SERVER = "smtp.mail.ru"
 SMTP_PORT = 587
 SMTP_LOGIN = "munka.help@mail.ru"
 SMTP_PASSWORD = "K7hy32VXY0fA5Fbq7fTV"
-RECIPIENT_EMAIL = "vladimir.973@list.ru"
+
+# Почта куда кидать сообщения
+RECIPIENT_EMAIL = "aukgh@yandex.ru"
 
 logging.basicConfig(level=logging.INFO)
 
