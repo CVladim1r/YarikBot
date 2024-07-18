@@ -1,6 +1,6 @@
 import logging
 from aiogram import Bot, Dispatcher, Router, types, F
-from aiogram.types import InputFile, InlineKeyboardMarkup, InlineKeyboardButton
+from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.storage.memory import MemoryStorage
 from aiogram.filters import Command, StateFilter
@@ -12,15 +12,26 @@ from email.mime.base import MIMEBase
 from email import encoders
 import asyncio
 import os
+import json
 
-API_TOKEN = '6848117166:AAGxWjBudAQulBcY6lCG1_cdwlArp3r4iKI'
+FILE_PATHS_JSON = 'file_paths.json'
+
+def load_file_paths():
+    if os.path.exists(FILE_PATHS_JSON):
+        with open(FILE_PATHS_JSON, 'r') as f:
+            return json.load(f)
+    return {}
+
+def save_file_paths(file_paths):
+    with open(FILE_PATHS_JSON, 'w') as f:
+        json.dump(file_paths, f)
+
+API_TOKEN = '1177090472:AAG8WP9HE29i2M2snlvRCiz9miQ00umR7NM'
 SMTP_SERVER = "smtp.mail.ru"
 SMTP_PORT = 587
 SMTP_LOGIN = "munka.help@mail.ru"
 SMTP_PASSWORD = "K7hy32VXY0fA5Fbq7fTV"
-
-# Почта куда кидать сообщения
-RECIPIENT_EMAIL = "aukgh@yandex.ru"
+RECIPIENT_EMAIL = "vladimir.973@list.ru"
 
 logging.basicConfig(level=logging.INFO)
 
@@ -80,12 +91,12 @@ async def process_question(message: types.Message, state: FSMContext):
 
 @router.callback_query(F.data == "skip_document", StateFilter(Form.document))
 async def skip_document(callback_query: types.CallbackQuery, state: FSMContext):
-    await state.update_data(file_path=None)
     await preview_application(callback_query.message, state)
     await callback_query.answer()
 
 @router.message(StateFilter(Form.document), F.content_type == types.ContentType.DOCUMENT)
 async def process_document(message: types.Message, state: FSMContext, bot: Bot):
+    user_id = message.from_user.id
     document_id = message.document.file_id
     document_info = await bot.get_file(document_id)
     document = await bot.download_file(document_info.file_path)
@@ -94,11 +105,18 @@ async def process_document(message: types.Message, state: FSMContext, bot: Bot):
     with open(file_path, "wb") as f:
         f.write(document.read())
 
+    file_paths = load_file_paths()
+    if str(user_id) not in file_paths:
+        file_paths[str(user_id)] = []
+    file_paths[str(user_id)].append(file_path)
+    save_file_paths(file_paths)
+
     await state.update_data(file_path=file_path)
-    await preview_application(message, state)
+    await ask_for_more_files(message, state)
 
 @router.message(StateFilter(Form.document), F.content_type == types.ContentType.PHOTO)
 async def process_photo(message: types.Message, state: FSMContext, bot: Bot):
+    user_id = message.from_user.id
     photo_id = message.photo[-1].file_id
     photo_info = await bot.get_file(photo_id)
     photo = await bot.download_file(photo_info.file_path)
@@ -107,8 +125,34 @@ async def process_photo(message: types.Message, state: FSMContext, bot: Bot):
     with open(file_path, "wb") as f:
         f.write(photo.read())
 
+    file_paths = load_file_paths()
+    if str(user_id) not in file_paths:
+        file_paths[str(user_id)] = []
+    file_paths[str(user_id)].append(file_path)
+    save_file_paths(file_paths)
+
     await state.update_data(file_path=file_path)
-    await preview_application(message, state)
+    await ask_for_more_files(message, state)
+
+async def ask_for_more_files(message: types.Message, state: FSMContext):
+    buttons = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="Добавить ещё файл", callback_data="add_more_file")],
+        [InlineKeyboardButton(text="Пропустить", callback_data="skip_document")]
+    ])
+
+    await message.answer("Хотите добавить ещё один файл?", reply_markup=buttons)
+    await state.set_state(Form.document)
+
+@router.callback_query(F.data == "add_more_file", StateFilter(Form.document))
+async def add_more_file(callback_query: types.CallbackQuery, state: FSMContext):
+    await callback_query.message.answer("Пожалуйста, прикрепите файл или фотографию:")
+    await state.set_state(Form.document)
+    await callback_query.answer()
+
+@router.callback_query(F.data == "skip_document", StateFilter(Form.document))
+async def skip_document(callback_query: types.CallbackQuery, state: FSMContext):
+    await preview_application(callback_query.message, state)
+    await callback_query.answer()
 
 async def preview_application(message: types.Message, state: FSMContext):
     data = await state.get_data()
@@ -136,6 +180,7 @@ async def preview_application(message: types.Message, state: FSMContext):
 @router.callback_query(F.data == "send_application", StateFilter(Form.preview))
 async def confirm_send_application(callback_query: types.CallbackQuery, state: FSMContext):
     data = await state.get_data()
+    data['user_id'] = callback_query.from_user.id
     await send_email(data)
     await callback_query.message.answer("Спасибо! Ваша заявка принята. Ожидайте, скоро с вами свяжется менеджер.")
     await state.clear()
@@ -148,6 +193,9 @@ async def start_over_application(callback_query: types.CallbackQuery, state: FSM
     await callback_query.answer()
 
 async def send_email(data):
+    user_id = data['user_id']
+    file_paths = load_file_paths().get(str(user_id), [])
+
     msg = MIMEMultipart()
     msg['From'] = SMTP_LOGIN
     msg['To'] = RECIPIENT_EMAIL
@@ -190,13 +238,13 @@ async def send_email(data):
 
     msg.attach(MIMEText(body, 'html'))
 
-    if data['file_path']:
-        attachment = open(data['file_path'], "rb")
-        part = MIMEBase('application', 'octet-stream')
-        part.set_payload(attachment.read())
-        encoders.encode_base64(part)
-        part.add_header('Content-Disposition', f"attachment; filename= {os.path.basename(data['file_path'])}")
-        msg.attach(part)
+    for file_path in file_paths:
+        with open(file_path, "rb") as attachment:
+            part = MIMEBase('application', 'octet-stream')
+            part.set_payload(attachment.read())
+            encoders.encode_base64(part)
+            part.add_header('Content-Disposition', f"attachment; filename= {os.path.basename(file_path)}")
+            msg.attach(part)
 
     server = smtplib.SMTP(SMTP_SERVER, SMTP_PORT)
     server.starttls()
@@ -204,6 +252,14 @@ async def send_email(data):
     text = msg.as_string()
     server.sendmail(SMTP_LOGIN, RECIPIENT_EMAIL, text)
     server.quit()
+
+    # Очистка файлов после отправки
+    file_paths = load_file_paths()
+    if str(user_id) in file_paths:
+        for file_path in file_paths[str(user_id)]:
+            os.remove(file_path)
+        del file_paths[str(user_id)]
+        save_file_paths(file_paths)
 
 async def main():
     await dp.start_polling(bot)
