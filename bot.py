@@ -13,6 +13,8 @@ from email import encoders
 import asyncio
 import os
 import json
+import re
+import mimetypes
 
 FILE_PATHS_JSON = 'file_paths.json'
 
@@ -26,13 +28,18 @@ def save_file_paths(file_paths):
     with open(FILE_PATHS_JSON, 'w') as f:
         json.dump(file_paths, f)
 
-API_TOKEN = '6848117166:AAGFRETuXNKKEABXp7opzvIzm5yDT6wN_GU' # Api токен бота
+def sanitize_filename(filename):
+    filename = re.sub(r'\s+', '_', filename)  # Заменяем пробелы на подчеркивания
+    filename = re.sub(r'[^\x00-\x7F]+', '', filename)  # Убираем не ASCII символы
+    return filename
+
+API_TOKEN = '6848117166:AAGFRETuXNKKEABXp7opzvIzm5yDT6wN_GU'  # Api токен бота
 SMTP_SERVER = "smtp.mail.ru"
 SMTP_PORT = 587
 SMTP_LOGIN = "munka.help@mail.ru"
 SMTP_PASSWORD = "K7hy32VXY0fA5Fbq7fTV"
 
-RECIPIENT_EMAIL = "vladimir.973@list.ru" # Почта куда идут письма
+RECIPIENT_EMAIL = "vladimir.973@list.ru"  # Почта куда идут письма
 
 logging.basicConfig(level=logging.INFO)
 
@@ -100,13 +107,15 @@ async def skip_document(callback_query: types.CallbackQuery, state: FSMContext):
 @router.message(StateFilter(Form.document), F.content_type == types.ContentType.DOCUMENT)
 async def process_document(message: types.Message, state: FSMContext, bot: Bot):
     user_id = message.from_user.id
-    document_id = message.document.file_id
-    document_info = await bot.get_file(document_id)
-    document = await bot.download_file(document_info.file_path)
+    document = message.document
+    document_info = await bot.get_file(document.file_id)
+    document_data = await bot.download_file(document_info.file_path)
 
-    file_path = f"./{message.document.file_name}"
+    file_name = document.file_name or f"document_{document.file_id}"
+    file_name = sanitize_filename(file_name)
+    file_path = os.path.join(".", file_name)
     with open(file_path, "wb") as f:
-        f.write(document.read())
+        f.write(document_data.read())
 
     file_paths = load_file_paths()
     if str(user_id) not in file_paths:
@@ -120,13 +129,15 @@ async def process_document(message: types.Message, state: FSMContext, bot: Bot):
 @router.message(StateFilter(Form.document), F.content_type == types.ContentType.PHOTO)
 async def process_photo(message: types.Message, state: FSMContext, bot: Bot):
     user_id = message.from_user.id
-    photo_id = message.photo[-1].file_id
-    photo_info = await bot.get_file(photo_id)
-    photo = await bot.download_file(photo_info.file_path)
+    photo = message.photo[-1]
+    photo_info = await bot.get_file(photo.file_id)
+    photo_data = await bot.download_file(photo_info.file_path)
 
-    file_path = f"./{photo_id}.jpg"
+    file_name = f"photo_{photo.file_id}.jpg"
+    file_name = sanitize_filename(file_name)
+    file_path = os.path.join(".", file_name)
     with open(file_path, "wb") as f:
-        f.write(photo.read())
+        f.write(photo_data.read())
 
     file_paths = load_file_paths()
     if str(user_id) not in file_paths:
@@ -250,7 +261,7 @@ async def send_email(data):
             part = MIMEBase('application', 'octet-stream')
             part.set_payload(attachment.read())
             encoders.encode_base64(part)
-            part.add_header('Content-Disposition', f"attachment; filename= {os.path.basename(file_path)}")
+            part.add_header('Content-Disposition', f"attachment; filename={os.path.basename(file_path)}")
             msg.attach(part)
 
     server = smtplib.SMTP(SMTP_SERVER, SMTP_PORT)
