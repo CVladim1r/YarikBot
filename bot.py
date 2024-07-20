@@ -26,12 +26,13 @@ def save_file_paths(file_paths):
     with open(FILE_PATHS_JSON, 'w') as f:
         json.dump(file_paths, f)
 
-API_TOKEN = '1177090472:AAG8WP9HE29i2M2snlvRCiz9miQ00umR7NM'
+API_TOKEN = '6848117166:AAGFRETuXNKKEABXp7opzvIzm5yDT6wN_GU' # Api токен бота
 SMTP_SERVER = "smtp.mail.ru"
 SMTP_PORT = 587
 SMTP_LOGIN = "munka.help@mail.ru"
 SMTP_PASSWORD = "K7hy32VXY0fA5Fbq7fTV"
-RECIPIENT_EMAIL = "vladimir.973@list.ru"
+
+RECIPIENT_EMAIL = "vladimir.973@list.ru" # Почта куда идут письма
 
 logging.basicConfig(level=logging.INFO)
 
@@ -44,6 +45,7 @@ class Form(StatesGroup):
     name = State()
     email = State()
     tg_nick = State()
+    nick = State()
     address = State()
     question = State()
     document = State()
@@ -63,12 +65,13 @@ async def process_name(message: types.Message, state: FSMContext):
 @router.message(StateFilter(Form.email))
 async def process_email(message: types.Message, state: FSMContext):
     await state.update_data(email=message.text)
-    await message.answer("Введите ваш ник в Telegram:")
+    await message.answer("Напишите любой способ для связи с вами")
     await state.set_state(Form.tg_nick)
 
 @router.message(StateFilter(Form.tg_nick))
 async def process_telegram_nick(message: types.Message, state: FSMContext):
     await state.update_data(tg_nick=message.text)
+    await state.update_data(nick=message.from_user.username)
     await message.answer("Введите вашу территорию проживания (адрес):")
     await state.set_state(Form.address)
 
@@ -164,7 +167,7 @@ async def preview_application(message: types.Message, state: FSMContext):
     <b>Номер заявки:</b> {app_number}
     <b>Имя:</b> {data['name']}
     <b>Email:</b> {data['email']}
-    <b>Ник в Telegram:</b> {data['tg_nick']}
+    <b>Связь через:</b> {data['tg_nick']}
     <b>Адрес:</b> {data['address']}
     <b>Вопрос:</b> {data['question']}
     """
@@ -220,8 +223,12 @@ async def send_email(data):
                     <td style="padding: 8px;">{data['email']}</td>
                 </tr>
                 <tr>
-                    <th style="padding: 8px; text-align: left;">Ник в Telegram</th>
-                    <td style="padding: 8px;"><a href='https://t.me/{data['tg_nick']}'>{data['tg_nick']}</a></td>
+                    <th style="padding: 8px; text-align: left;">Связь через</th>
+                    <td style="padding: 8px;">{data['tg_nick']}</td>
+                </tr>
+                <tr>
+                    <th style="padding: 8px; text-align: left;">Ник в Telegram / ссылка на аккаунт</th>
+                    <td style="padding: 8px;"><a href='https://t.me/{data['nick']}'>{data['nick']}</a></td>
                 </tr>
                 <tr>
                     <th style="padding: 8px; text-align: left;">Адрес</th>
